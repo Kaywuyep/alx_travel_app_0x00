@@ -1,8 +1,8 @@
 # pylint: disable=no-member
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Listing, Booking, Review
 from django.utils import timezone
+from .models import Listing, Booking, Review
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -29,7 +29,6 @@ class ReviewSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_rating(self, value):
-        """Validate rating is between 1 and 5"""
         if not 1 <= value <= 5:
             raise serializers.ValidationError(
                 "Rating must be between 1 and 5.")
@@ -56,20 +55,17 @@ class ListingSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_price_per_night(self, value):
-        """Validate price is positive"""
         if value <= 0:
             raise serializers.ValidationError(
                 "Price per night must be positive.")
         return value
 
     def validate_max_guests(self, value):
-        """Validate max guests is positive"""
         if value <= 0:
             raise serializers.ValidationError("Max guests must be at least 1.")
         return value
 
     def validate_amenities(self, value):
-        """Validate amenities is a list"""
         if not isinstance(value, list):
             raise serializers.ValidationError("Amenities must be a list.")
         return value
@@ -91,6 +87,7 @@ class ListingBasicSerializer(serializers.ModelSerializer):
 
 class BookingSerializer(serializers.ModelSerializer):
     """Serializer for Booking model"""
+
     listing = ListingBasicSerializer(read_only=True)
     listing_id = serializers.IntegerField(write_only=True)
     user = UserSerializer(read_only=True)
@@ -108,59 +105,47 @@ class BookingSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'total_price', 'created_at', 'updated_at']
 
     def validate(self, attrs):
-        """Custom validation for booking dates and guests"""
         check_in = attrs.get('check_in_date')
         check_out = attrs.get('check_out_date')
-        guests = attrs.get('guests')
         listing_id = attrs.get('listing_id')
 
         # Validate dates
         if check_in and check_out:
             if check_out <= check_in:
                 raise serializers.ValidationError(
-                    "Check-out date must be after check-in date."
-                )
-
+                    "Check-out date must be after check-in date.")
             if check_in < timezone.now().date():
                 raise serializers.ValidationError(
-                    "Check-in date cannot be in the past."
-                )
+                    "Check-in date cannot be in the past.")
 
         # Check for conflicting bookings
         if check_in and check_out and listing_id:
-            conflicting_bookings = Booking.objects.filter(
+            conflicts = Booking.objects.filter(
                 listing_id=listing_id,
                 status__in=['confirmed', 'pending'],
                 check_in_date__lt=check_out,
                 check_out_date__gt=check_in
             )
-
-            # Exclude current booking if updating
             if self.instance:
-                conflicting_bookings = conflicting_bookings.exclude(
-                    id=self.instance.id)
-
-            if conflicting_bookings.exists():
+                conflicts = conflicts.exclude(id=self.instance.id)
+            if conflicts.exists():
                 raise serializers.ValidationError(
-                    "Listing is not available for the selected dates."
-                )
+                    "Listing is not available for the selected dates.")
 
         return attrs
 
     def create(self, validated_data):
-        """Override create to calculate total price"""
         listing = Listing.objects.get(id=validated_data['listing_id'])
-        check_in = validated_data['check_in_date']
-        check_out = validated_data['check_out_date']
-
-        nights = (check_out - check_in).days
+        nights = (
+            validated_data['check_out_date'] - validated_data['check_in_date']
+            ).days
         validated_data['total_price'] = listing.price_per_night * nights
-
         return super().create(validated_data)
 
 
 class BookingBasicSerializer(serializers.ModelSerializer):
     """Basic serializer for Booking model (for nested representations)"""
+
     user = UserSerializer(read_only=True)
     duration = serializers.ReadOnlyField()
 
